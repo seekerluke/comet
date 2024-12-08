@@ -1,5 +1,6 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
+#include <emscripten/websocket.h>
 #endif
 
 #include "raylib.h"
@@ -569,6 +570,43 @@ void main_loop(void* arg)
     EndDrawing();
 }
 
+static EM_BOOL test_socket_open(int eventType, const EmscriptenWebSocketOpenEvent *websocketEvent, void *userData)
+{
+    printf("opened socket connection in Emscripten\n");
+    return EM_TRUE;
+}
+
+static EM_BOOL test_socket_error(int eventType, const EmscriptenWebSocketErrorEvent *websocketEvent, void *userData)
+{
+    printf("error in socket connection\n");
+    return EM_TRUE;
+}
+
+static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEvent *websocketEvent, void *userData)
+{
+    printf("closed socket connection in Emscripten\n");
+    return EM_TRUE;
+}
+
+static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
+{
+    if (websocketEvent->isText)
+    {
+        Engine* engine = userData;
+        lua_State* L = engine->L;
+
+        printf("running code with main VM...\n");
+        const char* lua_code = (const char*)websocketEvent->data;
+        luaL_dostring(L, lua_code);
+        engine->script_active = true;
+    }
+    else
+    {
+        printf("binary message received\n");
+    }
+    return EM_TRUE;
+}
+
 int main(void)
 {
 
@@ -576,7 +614,7 @@ int main(void)
     InitWindow(600, 450, "game");
 
     lua_State* L = luaL_newstate();
-    Engine engine = { L, true };
+    Engine engine = { L, false };
     luaL_openlibs(L);
 
     lua_register(L, "clear_background", cmt_clear_background);
@@ -646,6 +684,22 @@ int main(void)
     }
 
 #ifdef __EMSCRIPTEN__
+    EmscriptenWebSocketCreateAttributes attr;
+    attr.url = "ws://0.0.0.0:8000/";
+    attr.protocols = NULL;
+    attr.createOnMainThread = EM_TRUE;
+    const EMSCRIPTEN_WEBSOCKET_T socket = emscripten_websocket_new(&attr);
+    if (socket < 0)
+    {
+        printf("socket could not be created\n");
+        return 1;
+    }
+
+    emscripten_websocket_set_onopen_callback(socket, &engine, test_socket_open);
+    emscripten_websocket_set_onerror_callback(socket, &engine, test_socket_error);
+    emscripten_websocket_set_onclose_callback(socket, &engine, test_socket_close);
+    emscripten_websocket_set_onmessage_callback(socket, &engine, test_socket_message);
+
     emscripten_set_main_loop_arg(main_loop, &engine, 0, 1);
 #else
     while (!WindowShouldClose()) mainloop();

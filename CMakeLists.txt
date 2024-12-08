@@ -16,7 +16,10 @@ if (${PLATFORM} MATCHES "Web")
 
     # embedding a file with Emscripten requires a relative path
     file(RELATIVE_PATH rel ${CMAKE_BINARY_DIR} ${PROJECT_SOURCE_DIR}/user)
-    add_link_options(--embed-file ${rel})
+    add_link_options(
+            --embed-file ${rel}
+            -lwebsocket.js
+    )
 
     if(${CMAKE_BUILD_TYPE} MATCHES Debug)
         add_compile_options(
