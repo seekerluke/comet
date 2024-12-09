@@ -9,6 +9,7 @@
 #include "lauxlib.h"
 #include <string.h>
 #include <math.h>
+#include <assert.h>
 
 typedef struct Engine
 {
@@ -552,7 +553,7 @@ void main_loop(void* arg)
 
     ClearBackground(RAYWHITE);
 
-    if (engine->L != NULL && engine->script_active)
+    if (L != NULL && engine->script_active)
     {
         lua_getglobal(L, "update");
         if (lua_isfunction(L, -1))
@@ -563,11 +564,17 @@ void main_loop(void* arg)
                 engine->script_active = false;
             }
         }
+        else
+        {
+            lua_pop(L, 1);
+        }
     }
 
     DrawFPS(0, 0);
 
     EndDrawing();
+
+    assert(lua_gettop(L) == 0);
 }
 
 #ifdef __EMSCRIPTEN__
@@ -597,10 +604,21 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
         Engine* engine = userData;
         lua_State* L = engine->L;
 
-        printf("running code with main VM...\n");
-        const char* lua_code = (const char*)websocketEvent->data;
-        luaL_dostring(L, lua_code);
         engine->script_active = true;
+        printf("running code with main VM...\n");
+
+        const char* lua_code = (const char*)websocketEvent->data;
+        if (luaL_loadstring(L, lua_code))
+        {
+            printf("Lua error: %s\n", lua_tostring(L, -1));
+            engine->script_active = false;
+        }
+
+        if (engine->script_active && lua_pcall(L, 0, 0, 0))
+        {
+            printf("Lua error: %s\n", lua_tostring(L, -1));
+            engine->script_active = false;
+        }
     }
     else
     {

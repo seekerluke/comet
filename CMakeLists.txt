@@ -13,13 +13,15 @@ FetchContent_MakeAvailable(lua)
 option(DEBUG "Enter debug mode" OFF)
 if(DEBUG)
     add_definitions(-DDEBUG)
+else()
+    add_definitions(-DNDEBUG)
 endif()
 
 # TODO: needs a way to load assets into desktop versions of the game
 if(${PLATFORM} MATCHES "Web")
     set(CMAKE_EXECUTABLE_SUFFIX .html)
 
-    if(${CMAKE_BUILD_TYPE} MATCHES Debug)
+    if(DEBUG)
         add_compile_options(
                 -fsanitize=address
                 -fsanitize=undefined
