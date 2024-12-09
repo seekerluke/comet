@@ -10,16 +10,14 @@ FetchContent_MakeAvailable(raylib)
 FetchContent_Declare(lua URL https://www.lua.org/ftp/lua-5.1.5.tar.gz)
 FetchContent_MakeAvailable(lua)
 
-# TODO: needs a way to load assets into desktop versions of the game
-if (${PLATFORM} MATCHES "Web")
-    set(CMAKE_EXECUTABLE_SUFFIX .html)
+option(DEBUG "Enter debug mode" OFF)
+if(DEBUG)
+    add_definitions(-DDEBUG)
+endif()
 
-    # embedding a file with Emscripten requires a relative path
-    file(RELATIVE_PATH rel ${CMAKE_BINARY_DIR} ${PROJECT_SOURCE_DIR}/user)
-    add_link_options(
-            --embed-file ${rel}
-            -lwebsocket.js
-    )
+# TODO: needs a way to load assets into desktop versions of the game
+if(${PLATFORM} MATCHES "Web")
+    set(CMAKE_EXECUTABLE_SUFFIX .html)
 
     if(${CMAKE_BUILD_TYPE} MATCHES Debug)
         add_compile_options(
@@ -30,7 +28,12 @@ if (${PLATFORM} MATCHES "Web")
                 -sALLOW_MEMORY_GROWTH
                 -fsanitize=address
                 -fsanitize=undefined
+                -lwebsocket.js
         )
+    else()
+        # embedding a file with Emscripten requires a relative path
+        file(RELATIVE_PATH rel ${CMAKE_BINARY_DIR} ${PROJECT_SOURCE_DIR}/user)
+        add_link_options(--embed-file ${rel})
     endif()
 endif()
 

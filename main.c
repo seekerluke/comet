@@ -552,7 +552,7 @@ void main_loop(void* arg)
 
     ClearBackground(RAYWHITE);
 
-    if (engine->script_active)
+    if (engine->L != NULL && engine->script_active)
     {
         lua_getglobal(L, "update");
         if (lua_isfunction(L, -1))
@@ -570,6 +570,8 @@ void main_loop(void* arg)
     EndDrawing();
 }
 
+#ifdef __EMSCRIPTEN__
+#ifdef DEBUG
 static EM_BOOL test_socket_open(int eventType, const EmscriptenWebSocketOpenEvent *websocketEvent, void *userData)
 {
     printf("opened socket connection in Emscripten\n");
@@ -606,10 +608,11 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
     }
     return EM_TRUE;
 }
+#endif
+#endif
 
 int main(void)
 {
-
     SetConfigFlags(FLAG_VSYNC_HINT);
     InitWindow(600, 450, "game");
 
@@ -671,23 +674,12 @@ int main(void)
 
     register_raylib_constants(L);
 
-    if (luaL_loadfile(L, "user/main.lua"))
-    {
-        printf("Lua error: %s\n", lua_tostring(L, -1));
-        engine.script_active = false;
-    }
-
-    if (engine.script_active && lua_pcall(L, 0, 0, 0))
-    {
-        printf("Lua error: %s\n", lua_tostring(L, -1));
-        engine.script_active = false;
-    }
-
 #ifdef __EMSCRIPTEN__
-    EmscriptenWebSocketCreateAttributes attr;
-    attr.url = "ws://0.0.0.0:8000/";
-    attr.protocols = NULL;
-    attr.createOnMainThread = EM_TRUE;
+
+#ifdef DEBUG
+    // run Lua code with the help of websockets in debug mode
+    // TODO: validate if sockets are supported on this browser, should fail to create a connection and warn the user
+    EmscriptenWebSocketCreateAttributes attr = { "ws://0.0.0.0:8000/", NULL, EM_TRUE };
     const EMSCRIPTEN_WEBSOCKET_T socket = emscripten_websocket_new(&attr);
     if (socket < 0)
     {
@@ -699,10 +691,24 @@ int main(void)
     emscripten_websocket_set_onerror_callback(socket, &engine, test_socket_error);
     emscripten_websocket_set_onclose_callback(socket, &engine, test_socket_close);
     emscripten_websocket_set_onmessage_callback(socket, &engine, test_socket_message);
+#else
+    // run embedded Lua code in production
+    if (luaL_loadfile(L, "user/main.lua"))
+    {
+        printf("Lua error: %s\n", lua_tostring(L, -1));
+        engine.script_active = false;
+    }
+
+    if (engine.script_active && lua_pcall(L, 0, 0, 0))
+    {
+        printf("Lua error: %s\n", lua_tostring(L, -1));
+        engine.script_active = false;
+    }
+#endif
 
     emscripten_set_main_loop_arg(main_loop, &engine, 0, 1);
 #else
-    while (!WindowShouldClose()) mainloop();
+    while (!WindowShouldClose()) main_loop();
 #endif
 
     lua_close(L);
