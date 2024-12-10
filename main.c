@@ -11,6 +11,8 @@
 #include <math.h>
 #include <assert.h>
 
+#include "util/b64.h"
+
 typedef struct Engine
 {
     lua_State* L;
@@ -597,37 +599,6 @@ static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEv
     return EM_TRUE;
 }
 
-// decoding algorithm from https://github.com/elzoughby/Base64
-char base64_map[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
-                     'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
-                     'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
-                     'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'};
-
-static char* base64_decode(const char* cipher)
-{
-    char counts = 0;
-    char buffer[4];
-    char* plain = malloc(strlen(cipher) * 3 / 4);
-    int i = 0, p = 0;
-
-    for(i = 0; cipher[i] != '\0'; i++) {
-        char k;
-        for(k = 0 ; k < 64 && base64_map[k] != cipher[i]; k++) {}
-        buffer[counts++] = k;
-        if(counts == 4) {
-            plain[p++] = (buffer[0] << 2) + (buffer[1] >> 4);
-            if(buffer[2] != 64)
-                plain[p++] = (buffer[1] << 4) + (buffer[2] >> 2);
-            if(buffer[3] != 64)
-                plain[p++] = (buffer[2] << 6) + buffer[3];
-            counts = 0;
-        }
-    }
-
-    plain[p] = '\0';
-    return plain;
-}
-
 static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
 {
     if (websocketEvent->isText)
@@ -641,8 +612,13 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
         const char* contents_length = strtok(NULL, ",");
         const char* text_or_binary = strtok(NULL, ",");
 
-        // FIXME: this algorithm only decodes to ASCII strings, need something that can decode to binary as well
-        char* decoded = base64_decode(contents);
+        // get directory path without file name, make the directory
+        char dir_name[512] = { 0 };
+        const size_t position = strrchr(file_path, '/') - file_path;
+        strncpy(dir_name, file_path, position);
+        MakeDirectory(dir_name);
+
+        char* decoded = (char*)b64_decode(contents, strlen(contents));
 
         if (text_or_binary[0] == '0')
         {
@@ -677,9 +653,6 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
         else
         {
             printf("Invalid value for text_or_binary\n");
-            free(decoded);
-            decoded = NULL;
-            return EM_FALSE;
         }
 
         free(decoded);

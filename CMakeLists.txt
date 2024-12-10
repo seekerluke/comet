@@ -39,7 +39,10 @@ if(${PLATFORM} MATCHES "Web")
     endif()
 endif()
 
-add_executable(${PROJECT_NAME} main.c)
+add_executable(${PROJECT_NAME} main.c
+        util/decode.c
+        util/buffer.c
+)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${raylib_SOURCE_DIR}/src)
 target_link_directories(${PROJECT_NAME} PRIVATE ${raylib_BINARY_DIR})
