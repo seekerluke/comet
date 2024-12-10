@@ -597,28 +597,93 @@ static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEv
     return EM_TRUE;
 }
 
+// decoding algorithm from https://github.com/elzoughby/Base64
+char base64_map[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+                     'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+                     'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+                     'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '/'};
+
+static char* base64_decode(const char* cipher)
+{
+    char counts = 0;
+    char buffer[4];
+    char* plain = malloc(strlen(cipher) * 3 / 4);
+    int i = 0, p = 0;
+
+    for(i = 0; cipher[i] != '\0'; i++) {
+        char k;
+        for(k = 0 ; k < 64 && base64_map[k] != cipher[i]; k++) {}
+        buffer[counts++] = k;
+        if(counts == 4) {
+            plain[p++] = (buffer[0] << 2) + (buffer[1] >> 4);
+            if(buffer[2] != 64)
+                plain[p++] = (buffer[1] << 4) + (buffer[2] >> 2);
+            if(buffer[3] != 64)
+                plain[p++] = (buffer[2] << 6) + buffer[3];
+            counts = 0;
+        }
+    }
+
+    plain[p] = '\0';
+    return plain;
+}
+
 static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
 {
     if (websocketEvent->isText)
     {
-        Engine* engine = userData;
-        lua_State* L = engine->L;
+        char* str = (char*)websocketEvent->data;
 
-        engine->script_active = true;
-        printf("running code with main VM...\n");
+        // expected format for string is "<file_path>,<contents>,<contents_length>,<text_or_binary>"
+        // contents_length is ignored for text files, but it's still required for the hacky parser below
+        const char* file_path = strtok(str, ",");
+        const char* contents = strtok(NULL, ",");
+        const char* contents_length = strtok(NULL, ",");
+        const char* text_or_binary = strtok(NULL, ",");
 
-        const char* lua_code = (const char*)websocketEvent->data;
-        if (luaL_loadstring(L, lua_code))
+        // FIXME: this algorithm only decodes to ASCII strings, need something that can decode to binary as well
+        char* decoded = base64_decode(contents);
+
+        if (text_or_binary[0] == '0')
         {
-            printf("Lua error: %s\n", lua_tostring(L, -1));
-            engine->script_active = false;
+            if (!SaveFileText(file_path, decoded))
+            {
+                printf("Could not save text file \"%s\"\n", file_path);
+            }
+
+            lua_State* L = luaL_newstate();
+            luaL_openlibs(L);
+            if (luaL_loadfile(L, "main.lua"))
+            {
+                printf("Lua error: %s\n", lua_tostring(L, -1));
+            }
+            else
+            {
+                if (lua_pcall(L, 0, 0, 0))
+                {
+                    printf("Lua error: %s\n", lua_tostring(L, -1));
+                }
+            }
+            lua_close(L);
+        }
+        else if (text_or_binary[0] == '1')
+        {
+            const int size = (int)strtol(contents_length, NULL, 0);
+            if (!SaveFileData(file_path, decoded, size))
+            {
+                printf("Could not save binary file \"%s\"\n", file_path);
+            }
+        }
+        else
+        {
+            printf("Invalid value for text_or_binary\n");
+            free(decoded);
+            decoded = NULL;
+            return EM_FALSE;
         }
 
-        if (engine->script_active && lua_pcall(L, 0, 0, 0))
-        {
-            printf("Lua error: %s\n", lua_tostring(L, -1));
-            engine->script_active = false;
-        }
+        free(decoded);
+        decoded = NULL;
     }
     else
     {
