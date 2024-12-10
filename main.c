@@ -576,104 +576,16 @@ void main_loop(void* arg)
 
     EndDrawing();
 
-    assert(lua_gettop(L) == 0);
+    if (L != NULL && engine->script_active)
+        assert(lua_gettop(L) == 0);
 }
 
-#ifdef __EMSCRIPTEN__
-#ifdef DEBUG
-static EM_BOOL test_socket_open(int eventType, const EmscriptenWebSocketOpenEvent *websocketEvent, void *userData)
+void initialise_lua(Engine* engine)
 {
-    printf("opened socket connection in Emscripten\n");
-    return EM_TRUE;
-}
-
-static EM_BOOL test_socket_error(int eventType, const EmscriptenWebSocketErrorEvent *websocketEvent, void *userData)
-{
-    printf("error in socket connection\n");
-    return EM_TRUE;
-}
-
-static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEvent *websocketEvent, void *userData)
-{
-    printf("closed socket connection in Emscripten\n");
-    return EM_TRUE;
-}
-
-static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
-{
-    if (websocketEvent->isText)
-    {
-        char* str = (char*)websocketEvent->data;
-
-        // expected format for string is "<file_path>,<contents>,<contents_length>,<text_or_binary>"
-        // contents_length is ignored for text files, but it's still required for the hacky parser below
-        const char* file_path = strtok(str, ",");
-        const char* contents = strtok(NULL, ",");
-        const char* contents_length = strtok(NULL, ",");
-        const char* text_or_binary = strtok(NULL, ",");
-
-        // get directory path without file name, make the directory
-        char dir_name[512] = { 0 };
-        const size_t position = strrchr(file_path, '/') - file_path;
-        strncpy(dir_name, file_path, position);
-        MakeDirectory(dir_name);
-
-        char* decoded = (char*)b64_decode(contents, strlen(contents));
-
-        if (text_or_binary[0] == '0')
-        {
-            if (!SaveFileText(file_path, decoded))
-            {
-                printf("Could not save text file \"%s\"\n", file_path);
-            }
-
-            lua_State* L = luaL_newstate();
-            luaL_openlibs(L);
-            if (luaL_loadfile(L, "main.lua"))
-            {
-                printf("Lua error: %s\n", lua_tostring(L, -1));
-            }
-            else
-            {
-                if (lua_pcall(L, 0, 0, 0))
-                {
-                    printf("Lua error: %s\n", lua_tostring(L, -1));
-                }
-            }
-            lua_close(L);
-        }
-        else if (text_or_binary[0] == '1')
-        {
-            const int size = (int)strtol(contents_length, NULL, 0);
-            if (!SaveFileData(file_path, decoded, size))
-            {
-                printf("Could not save binary file \"%s\"\n", file_path);
-            }
-        }
-        else
-        {
-            printf("Invalid value for text_or_binary\n");
-        }
-
-        free(decoded);
-        decoded = NULL;
-    }
-    else
-    {
-        printf("binary message received\n");
-    }
-    return EM_TRUE;
-}
-#endif
-#endif
-
-int main(void)
-{
-    SetConfigFlags(FLAG_VSYNC_HINT);
-    InitWindow(600, 450, "game");
+    printf("lua init\n");
 
     lua_State* L = luaL_newstate();
-    Engine engine = { L, false };
+    engine->L = L;
     luaL_openlibs(L);
 
     lua_register(L, "clear_background", cmt_clear_background);
@@ -729,6 +641,119 @@ int main(void)
     lua_pop(L, 1);
 
     register_raylib_constants(L);
+}
+
+void run_lua_main(Engine* engine)
+{
+    lua_State* L = engine->L;
+    engine->script_active = true;
+
+    if (luaL_loadfile(L, "/main.lua"))
+    {
+        printf("Lua error: %s\n", lua_tostring(L, -1));
+        engine->script_active = false;
+    }
+
+    if (engine->script_active && lua_pcall(L, 0, 0, 0))
+    {
+        printf("Lua error: %s\n", lua_tostring(L, -1));
+        engine->script_active = false;
+    }
+}
+
+#ifdef __EMSCRIPTEN__
+#ifdef DEBUG
+static EM_BOOL test_socket_open(int eventType, const EmscriptenWebSocketOpenEvent *websocketEvent, void *userData)
+{
+    printf("opened socket connection in Emscripten\n");
+    return EM_TRUE;
+}
+
+static EM_BOOL test_socket_error(int eventType, const EmscriptenWebSocketErrorEvent *websocketEvent, void *userData)
+{
+    printf("error in socket connection\n");
+    return EM_TRUE;
+}
+
+static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEvent *websocketEvent, void *userData)
+{
+    printf("closed socket connection in Emscripten\n");
+    return EM_TRUE;
+}
+
+static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
+{
+    if (websocketEvent->isText)
+    {
+        char* str = (char*)websocketEvent->data;
+
+        if (strcmp(str, "project_files_sent") == 0)
+        {
+            // restart the Lua VM once all files are sent
+            Engine* engine = userData;
+            if (engine->L != NULL)
+            {
+                lua_close(engine->L);
+                engine->L = NULL;
+            }
+            initialise_lua(engine);
+            run_lua_main(engine);
+            return EM_TRUE;
+        }
+
+        // expected format for string is "<file_path>,<contents>,<contents_length>,<text_or_binary>"
+        // contents_length is ignored for text files, but it's still required for the hacky parser below
+        const char* file_path = strtok(str, ",");
+        const char* contents = strtok(NULL, ",");
+        const char* contents_length = strtok(NULL, ",");
+        const char* text_or_binary = strtok(NULL, ",");
+
+        // get directory path without file name, make the directory
+        char dir_name[512] = { 0 };
+        const size_t position = strrchr(file_path, '/') - file_path;
+        strncpy(dir_name, file_path, position);
+        MakeDirectory(dir_name);
+
+        char* decoded = (char*)b64_decode(contents, strlen(contents));
+
+        if (text_or_binary[0] == '0')
+        {
+            if (!SaveFileText(file_path, decoded))
+            {
+                printf("Could not save text file \"%s\"\n", file_path);
+            }
+        }
+        else if (text_or_binary[0] == '1')
+        {
+            const int size = (int)strtol(contents_length, NULL, 0);
+            if (!SaveFileData(file_path, decoded, size))
+            {
+                printf("Could not save binary file \"%s\"\n", file_path);
+            }
+        }
+        else
+        {
+            printf("Invalid value for text_or_binary\n");
+        }
+
+        free(decoded);
+        decoded = NULL;
+    }
+    else
+    {
+        printf("binary message received\n");
+    }
+    return EM_TRUE;
+}
+#endif
+#endif
+
+int main(void)
+{
+    SetConfigFlags(FLAG_VSYNC_HINT);
+    InitWindow(600, 450, "game");
+
+    Engine engine = { NULL, false };
 
 #ifdef __EMSCRIPTEN__
 
@@ -748,18 +773,10 @@ int main(void)
     emscripten_websocket_set_onclose_callback(socket, &engine, test_socket_close);
     emscripten_websocket_set_onmessage_callback(socket, &engine, test_socket_message);
 #else
-    // run embedded Lua code in production
-    if (luaL_loadfile(L, "user/main.lua"))
-    {
-        printf("Lua error: %s\n", lua_tostring(L, -1));
-        engine.script_active = false;
-    }
+    initialise_lua(&engine);
 
-    if (engine.script_active && lua_pcall(L, 0, 0, 0))
-    {
-        printf("Lua error: %s\n", lua_tostring(L, -1));
-        engine.script_active = false;
-    }
+    // run embedded Lua code in production
+    run_lua_main(&engine);
 #endif
 
     emscripten_set_main_loop_arg(main_loop, &engine, 0, 1);
@@ -767,7 +784,7 @@ int main(void)
     while (!WindowShouldClose()) main_loop();
 #endif
 
-    lua_close(L);
+    lua_close(engine.L);
     CloseWindow();
     return 0;
 }
