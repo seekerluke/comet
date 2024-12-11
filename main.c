@@ -783,19 +783,25 @@ int main(void)
 
 #ifdef DEBUG
     // run Lua code with the help of websockets in debug mode
-    // TODO: validate if sockets are supported on this browser, should fail to create a connection and warn the user
-    EmscriptenWebSocketCreateAttributes attr = { "ws://0.0.0.0:8000/", NULL, EM_TRUE };
-    const EMSCRIPTEN_WEBSOCKET_T socket = emscripten_websocket_new(&attr);
-    if (socket < 0)
+    if (emscripten_websocket_is_supported())
     {
-        printf("socket could not be created\n");
-        return 1;
-    }
+        EmscriptenWebSocketCreateAttributes attr = { "ws://0.0.0.0:8000/", NULL, EM_TRUE };
+        const EMSCRIPTEN_WEBSOCKET_T socket = emscripten_websocket_new(&attr);
+        if (socket < 0)
+        {
+            printf("WebSocket could not be created\n");
+            return 1;
+        }
 
-    emscripten_websocket_set_onopen_callback(socket, &engine, test_socket_open);
-    emscripten_websocket_set_onerror_callback(socket, &engine, test_socket_error);
-    emscripten_websocket_set_onclose_callback(socket, &engine, test_socket_close);
-    emscripten_websocket_set_onmessage_callback(socket, &engine, test_socket_message);
+        emscripten_websocket_set_onopen_callback(socket, &engine, test_socket_open);
+        emscripten_websocket_set_onerror_callback(socket, &engine, test_socket_error);
+        emscripten_websocket_set_onclose_callback(socket, &engine, test_socket_close);
+        emscripten_websocket_set_onmessage_callback(socket, &engine, test_socket_message);
+    }
+    else
+    {
+        printf("Cannot start Comet reload client, WebSockets are not supported on this browser\n");
+    }
 #else
     initialise_lua(&engine);
 
