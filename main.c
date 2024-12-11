@@ -117,6 +117,12 @@ static int cmt_image_load(lua_State* L)
     const char* file_path = luaL_checkstring(L, 1);
     const Texture2D texture = LoadTexture(file_path);
 
+    // check if image was loaded
+    if (texture.width == 0 && texture.height == 0)
+    {
+        return luaL_error(L, "image_load failed to load image at \"%s\"\n", file_path);
+    }
+
     Texture2D* texture_ptr = lua_newuserdata(L, sizeof(Texture2D));
     *texture_ptr = texture;
 
@@ -687,9 +693,9 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
     {
         char* str = (char*)websocketEvent->data;
 
-        if (strcmp(str, "project_files_sent") == 0)
+        // restart the lua VM upon receiving this message
+        if (strcmp(str, "restart_lua") == 0)
         {
-            // restart the Lua VM once all files are sent
             Engine* engine = userData;
             if (engine->L != NULL)
             {
@@ -704,9 +710,27 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
         // expected format for string is "<file_path>,<contents>,<contents_length>,<text_or_binary>"
         // contents_length is ignored for text files, but it's still required for the hacky parser below
         const char* file_path = strtok(str, ",");
+
         const char* contents = strtok(NULL, ",");
+        if (contents == NULL)
+        {
+            // early out, if there are no commas in the data, this format won't work
+            printf("Invalid websocket message\n");
+            return EM_TRUE;
+        }
+
         const char* contents_length = strtok(NULL, ",");
         const char* text_or_binary = strtok(NULL, ",");
+
+        if (strcmp(contents, "null") == 0)
+        {
+            if (remove(file_path) == 0)
+                printf("File \"%s\" was removed\n", file_path);
+            else
+                printf("\"%s\" could not be removed.\n", file_path);
+
+            return EM_TRUE;
+        }
 
         // get directory path without file name, make the directory
         char dir_name[512] = { 0 };
