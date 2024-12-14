@@ -708,7 +708,6 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
     if (websocketEvent->isText)
     {
         char* str = (char*)websocketEvent->data;
-        printf("received: %s\n", str);
 
         // restart the lua VM upon receiving this message
         if (strcmp(str, "restart_lua") == 0)
