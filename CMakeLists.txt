@@ -17,7 +17,7 @@ else()
     add_definitions(-DNDEBUG)
 endif()
 
-# TODO: needs a way to load assets into desktop versions of the game
+# TODO: needs a way to load assets into desktop versions of the game, likely a binary pack file
 if(${PLATFORM} MATCHES "Web")
     set(CMAKE_EXECUTABLE_SUFFIX .html)
 

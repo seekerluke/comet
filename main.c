@@ -1,6 +1,11 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #include <emscripten/websocket.h>
+
+#if DEBUG
+#include <ftw.h>
+#endif
+
 #endif
 
 #include "raylib.h"
@@ -8,6 +13,7 @@
 #include "lualib.h"
 #include "lauxlib.h"
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 #include <assert.h>
 
@@ -55,15 +61,16 @@ static Camera2D* cmt_check_camera(lua_State* L, const int idx, const char* arg_n
 }
 
 // TODO: think about the file structure some more, and how you could move these out of global scope
-Rectangle source = { 0 };
-Rectangle dest = { 0 };
-Vector2 origin = { 0 };
-Vector2 position = { 0 };
+Rectangle source = {0};
+Rectangle dest = {0};
+Vector2 origin = {0};
+Vector2 position = {0};
 
 // internal functions used by bindings
-static Rectangle* cmt_rect_new_internal(lua_State* L, const float x, const float y, const float width, const float height)
+static Rectangle* cmt_rect_new_internal(lua_State* L, const float x, const float y, const float width,
+                                        const float height)
 {
-    const Rectangle rect = { x, y, width, height };
+    const Rectangle rect = {x, y, width, height};
     Rectangle* rect_ptr = lua_newuserdata(L, sizeof(Rectangle));
     *rect_ptr = rect;
 
@@ -75,7 +82,7 @@ static Rectangle* cmt_rect_new_internal(lua_State* L, const float x, const float
 
 static Color* cmt_color_new_internal(lua_State* L, const int r, const int g, const int b, const int a)
 {
-    const Color color = { r, g, b, a };
+    const Color color = {r, g, b, a};
     Color* color_ptr = lua_newuserdata(L, sizeof(Color));
     *color_ptr = color;
 
@@ -85,9 +92,10 @@ static Color* cmt_color_new_internal(lua_State* L, const int r, const int g, con
     return color_ptr;
 }
 
-static Camera2D* cmt_camera_new_internal(lua_State* L, const float x, const float y, const float rotation, const float zoom)
+static Camera2D* cmt_camera_new_internal(lua_State* L, const float x, const float y, const float rotation,
+                                         const float zoom)
 {
-    const Camera2D cam = { -x, -y, 0, 0, rotation, zoom };
+    const Camera2D cam = {-x, -y, 0, 0, rotation, zoom};
     Camera2D* cam_ptr = lua_newuserdata(L, sizeof(Camera2D));
     *cam_ptr = cam;
 
@@ -588,8 +596,6 @@ void main_loop(void* arg)
 
 void initialise_lua(Engine* engine)
 {
-    printf("lua init\n");
-
     lua_State* L = luaL_newstate();
     engine->L = L;
     luaL_openlibs(L);
@@ -669,29 +675,40 @@ void run_lua_main(Engine* engine)
 
 #ifdef __EMSCRIPTEN__
 #ifdef DEBUG
-static EM_BOOL test_socket_open(int eventType, const EmscriptenWebSocketOpenEvent *websocketEvent, void *userData)
+static EM_BOOL test_socket_open(int eventType, const EmscriptenWebSocketOpenEvent* websocketEvent, void* userData)
 {
     printf("opened socket connection in Emscripten\n");
     return EM_TRUE;
 }
 
-static EM_BOOL test_socket_error(int eventType, const EmscriptenWebSocketErrorEvent *websocketEvent, void *userData)
+static EM_BOOL test_socket_error(int eventType, const EmscriptenWebSocketErrorEvent* websocketEvent, void* userData)
 {
     printf("error in socket connection\n");
     return EM_TRUE;
 }
 
-static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEvent *websocketEvent, void *userData)
+static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEvent* websocketEvent, void* userData)
 {
     printf("closed socket connection in Emscripten\n");
     return EM_TRUE;
 }
 
-static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent *websocketEvent, void *userData)
+int remove_callback(const char *file_path, const struct stat *sb, int type_flag, struct FTW *ftw_buffer)
+{
+    if (remove(file_path) == 0)
+        printf("File \"%s\" was removed\n", file_path);
+    else
+        printf("\"%s\" could not be removed.\n", file_path);
+
+    return 0;
+}
+
+static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent* websocketEvent, void* userData)
 {
     if (websocketEvent->isText)
     {
         char* str = (char*)websocketEvent->data;
+        printf("received: %s\n", str);
 
         // restart the lua VM upon receiving this message
         if (strcmp(str, "restart_lua") == 0)
@@ -707,33 +724,37 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
             return EM_TRUE;
         }
 
-        // expected format for string is "<file_path>,<contents>,<contents_length>,<text_or_binary>"
+        // expected format for string is "<event_kind>,<file_path>,<contents>,<contents_length>,<text_or_binary>"
+        // event_kind of type "remove" only provides "<event_kind>,<file_path>", need to check the rest for NULL
         // contents_length is ignored for text files, but it's still required for the hacky parser below
-        const char* file_path = strtok(str, ",");
+        const char* event_kind = strtok(str, ",");
+        const char* file_path = strtok(NULL, ",");
 
-        const char* contents = strtok(NULL, ",");
-        if (contents == NULL)
+        if (strcmp(event_kind, "remove") == 0)
         {
-            // early out, if there are no commas in the data, this format won't work
-            printf("Invalid websocket message\n");
+            // removing a directory should also remove everything inside it recursively
+            if (DirectoryExists(file_path))
+            {
+                nftw(file_path, remove_callback, 64, FTW_DEPTH | FTW_PHYS);
+            }
+            else
+            {
+                if (remove(file_path) == 0)
+                    printf("File \"%s\" was removed\n", file_path);
+                else
+                    printf("\"%s\" could not be removed.\n", file_path);
+            }
+
             return EM_TRUE;
         }
 
+        // you can safely parse contents after remove event has been processed and returned
+        const char* contents = strtok(NULL, ",");
         const char* contents_length = strtok(NULL, ",");
         const char* text_or_binary = strtok(NULL, ",");
 
-        if (strcmp(contents, "null") == 0)
-        {
-            if (remove(file_path) == 0)
-                printf("File \"%s\" was removed\n", file_path);
-            else
-                printf("\"%s\" could not be removed.\n", file_path);
-
-            return EM_TRUE;
-        }
-
         // get directory path without file name, make the directory
-        char dir_name[512] = { 0 };
+        char dir_name[512] = {0};
         const size_t position = strrchr(file_path, '/') - file_path;
         strncpy(dir_name, file_path, position);
         MakeDirectory(dir_name);
@@ -777,7 +798,7 @@ int main(void)
     SetConfigFlags(FLAG_VSYNC_HINT);
     InitWindow(600, 450, "game");
 
-    Engine engine = { NULL, false };
+    Engine engine = {NULL, false};
 
 #ifdef __EMSCRIPTEN__
 
@@ -785,7 +806,7 @@ int main(void)
     // run Lua code with the help of websockets in debug mode
     if (emscripten_websocket_is_supported())
     {
-        EmscriptenWebSocketCreateAttributes attr = { "ws://0.0.0.0:8000/", NULL, EM_TRUE };
+        EmscriptenWebSocketCreateAttributes attr = {"ws://0.0.0.0:8000/", NULL, EM_TRUE};
         const EMSCRIPTEN_WEBSOCKET_T socket = emscripten_websocket_new(&attr);
         if (socket < 0)
         {
@@ -811,10 +832,19 @@ int main(void)
 
     emscripten_set_main_loop_arg(main_loop, &engine, 0, 1);
 #else
-    while (!WindowShouldClose()) main_loop();
+    // desktop is not supported yet
+    initialise_lua(&engine);
+    run_lua_main(&engine);
+
+    while (!WindowShouldClose()) main_loop(&engine);
 #endif
 
-    lua_close(engine.L);
+    if (engine.L != NULL)
+    {
+        lua_close(engine.L);
+        engine.L = NULL;
+    }
+
     CloseWindow();
     return 0;
 }
