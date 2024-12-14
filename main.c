@@ -3,6 +3,8 @@
 
 #ifdef DEBUG
 #include "debug_client.h"
+#else
+#include "bindings.h"
 #endif
 
 #endif

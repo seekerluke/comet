@@ -33,9 +33,11 @@ if(${PLATFORM} MATCHES "Web")
                 -lwebsocket.js
         )
     else()
-        # embedding a file with Emscripten requires a relative path
+        # embedding a file/folder with Emscripten requires a relative path
         file(RELATIVE_PATH rel ${CMAKE_BINARY_DIR} ${PROJECT_SOURCE_DIR}/user)
-        add_link_options(--embed-file ${rel})
+
+        # place user directory at the root of the Emscripten file system
+        add_link_options(--embed-file ${rel}@/)
     endif()
 endif()
 

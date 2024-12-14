@@ -5,6 +5,16 @@
 
 #include "bindings.h"
 
+static int remove_callback(const char *file_path, const struct stat *sb, int type_flag, struct FTW *ftw_buffer)
+{
+    if (remove(file_path) == 0)
+        printf("File \"%s\" was removed\n", file_path);
+    else
+        printf("\"%s\" could not be removed.\n", file_path);
+
+    return 0;
+}
+
 static EM_BOOL test_socket_open(int eventType, const EmscriptenWebSocketOpenEvent* websocketEvent, void* userData)
 {
     printf("opened socket connection in Emscripten\n");
@@ -21,16 +31,6 @@ static EM_BOOL test_socket_close(int eventType, const EmscriptenWebSocketCloseEv
 {
     printf("closed socket connection in Emscripten\n");
     return EM_TRUE;
-}
-
-int remove_callback(const char *file_path, const struct stat *sb, int type_flag, struct FTW *ftw_buffer)
-{
-    if (remove(file_path) == 0)
-        printf("File \"%s\" was removed\n", file_path);
-    else
-        printf("\"%s\" could not be removed.\n", file_path);
-
-    return 0;
 }
 
 static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessageEvent* websocketEvent, void* userData)
