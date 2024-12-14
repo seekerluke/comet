@@ -81,6 +81,11 @@ static EM_BOOL test_socket_message(int eventType, const EmscriptenWebSocketMessa
         const char* contents = strtok(NULL, ",");
         const char* contents_length = strtok(NULL, ",");
         const char* text_or_binary = strtok(NULL, ",");
+        if (contents == NULL || contents_length == NULL || text_or_binary == NULL)
+        {
+            printf("Received invalid message data format\n");
+            return EM_FALSE;
+        }
 
         // get directory path without file name, make the directory
         char dir_name[512] = {0};
@@ -140,6 +145,7 @@ bool initialise_debug_client(Engine* engine)
     else
     {
         printf("Cannot start Comet reload client, WebSockets are not supported on this browser\n");
+        return false;
     }
 
     return true;
