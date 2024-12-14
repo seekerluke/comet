@@ -40,9 +40,9 @@ if(${PLATFORM} MATCHES "Web")
 endif()
 
 add_executable(${PROJECT_NAME} main.c
-        util/decode.c
-        util/buffer.c
-)
+        comet.h
+        bindings.c
+        bindings.h)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${raylib_SOURCE_DIR}/src)
 target_link_directories(${PROJECT_NAME} PRIVATE ${raylib_BINARY_DIR})
@@ -80,3 +80,13 @@ target_sources(${PROJECT_NAME} PRIVATE
         ${lua_SOURCE_DIR}/src/lvm.c
         ${lua_SOURCE_DIR}/src/lzio.c
 )
+
+if(${PLATFORM} MATCHES "Web")
+    if (DEBUG)
+        target_sources(${PROJECT_NAME} PRIVATE
+                debug_client.c
+                debug_client.h
+                util/buffer.c
+                util/decode.c)
+    endif()
+endif()
