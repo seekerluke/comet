@@ -21,6 +21,8 @@ endif()
 if(${PLATFORM} MATCHES "Web")
     set(CMAKE_EXECUTABLE_SUFFIX .html)
 
+    add_link_options(--shell-file ${CMAKE_SOURCE_DIR}/shell.html)
+
     if(DEBUG)
         add_compile_options(
                 -fsanitize=address
